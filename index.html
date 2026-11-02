@@ -25,7 +25,7 @@
 
   COMMANDES
     Smartphone/tablette : glisser le doigt = bouger ; toucher = lancer / tirer le laser
-    Souris : bouger la souris ; clic = lancer / laser    Clavier : ← → (ou Q/D), Espace, P = pause
+    Souris : bouger la souris ; clic = lancer / laser    Clavier : ← → (ou Q/D), Espace, P = pause ; M = son ON/OFF
 
   ADAPTATION SMARTPHONE / TABLETTE (un seul code pour doigt, stylet et souris : « Pointer Events »)
     Affichage   : canvas 3:4 qui remplit l’écran, suit la rotation, respecte les encoches ;
@@ -99,6 +99,19 @@ const vib=n=>{try{if(navigator.vibrate)navigator.vibrate(n)}catch(e){}};   // vi
 try{best=+localStorage.getItem('casse-briques-best')||0;mode=localStorage.getItem('casse-briques-mode')==='abs'?'abs':'rel'}catch(e){}
 const spd=()=>Math.min(560,340+level*18);              // vitesse de la balle selon le niveau
 
+/* ================= 1 bis. AUDIO : EFFETS + MUSIQUE ORIGINALE =================
+   Sons synthétisés avec Web Audio : aucun fichier externe nécessaire.
+   Le navigateur autorise l'audio après le premier geste utilisateur. Touche M : mute/unmute. */
+let audioCtx=null,audioMaster=null,audioMuted=false,musicTimer=null,musicStep=0,lastGunSound=0;
+const musicNotes=[659.25,0,523.25,587.33,0,392,493.88,0,440,0,523.25,659.25,0,587.33,493.88,0,392,0,440,523.25,0,493.88,440,0,349.23,0,392,440,0,493.88,523.25,0];
+function audioInit(){if(audioCtx){if(audioCtx.state==='suspended')audioCtx.resume();return}try{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;audioCtx=new AC();audioMaster=audioCtx.createGain();audioMaster.gain.value=audioMuted?0:.62;audioMaster.connect(audioCtx.destination)}catch(e){audioCtx=null}}
+function tone(freq,dur=.09,wave='square',vol=.12,slide=1){if(audioMuted)return;audioInit();if(!audioCtx||!audioMaster)return;const t=audioCtx.currentTime,o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type=wave;o.frequency.setValueAtTime(Math.max(30,freq),t);o.frequency.exponentialRampToValueAtTime(Math.max(30,freq*slide),t+dur);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(Math.max(.0002,vol),t+.008);g.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(g);g.connect(audioMaster);o.start(t);o.stop(t+dur+.025)}
+function noise(dur=.16,vol=.12,cut=1200){if(audioMuted)return;audioInit();if(!audioCtx||!audioMaster)return;const t=audioCtx.currentTime,n=Math.max(1,Math.floor(audioCtx.sampleRate*dur)),buf=audioCtx.createBuffer(1,n,audioCtx.sampleRate),a=buf.getChannelData(0);for(let i=0;i<n;i++)a[i]=(Math.random()*2-1)*(1-i/n);const src=audioCtx.createBufferSource(),f=audioCtx.createBiquadFilter(),g=audioCtx.createGain();src.buffer=buf;f.type='lowpass';f.frequency.value=cut;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0001,t+dur);src.connect(f);f.connect(g);g.connect(audioMaster);src.start(t);src.stop(t+dur)}
+function sfx(name,arg){if(audioMuted)return;switch(name){case'launch':tone(330,.12,'triangle',.16,1.8);break;case'paddle':tone(520,.055,'sine',.09,.78);break;case'brick':tone(arg==='resistant'?210:arg==='surprise'?760:arg==='bomb'?95:430,.075,arg==='resistant'?'triangle':'square',.105,.68);break;case'break':tone(180,.12,'triangle',.13,.42);noise(.11,.07,1800);break;case'bomb':tone(75,.65,'sawtooth',.23,.28);noise(.62,.28,650);break;case'bonus':tone(660,.09,'sine',.14,1.4);setTimeout(()=>tone(990,.13,'sine',.13,1.2),75);break;case'multi':tone(440,.08,'square',.11,1.5);setTimeout(()=>tone(660,.08,'square',.1,1.4),65);setTimeout(()=>tone(880,.1,'square',.1,1.3),130);break;case'weapon':tone(180,.09,'sawtooth',.12,2.2);tone(720,.13,'square',.08,.55);break;case'laser':tone(1100,.22,'sawtooth',.14,.16);noise(.22,.09,3200);break;case'machine':tone(145,.045,'square',.055,.48);break;case'miss':tone(330,.2,'triangle',.15,.5);setTimeout(()=>tone(165,.38,'sawtooth',.13,.55),130);break;case'wall':tone(523,.13,'triangle',.14,1.25);setTimeout(()=>tone(659,.13,'triangle',.14,1.25),130);setTimeout(()=>tone(784,.24,'triangle',.16,1.3),260);break}}
+function startMusic(){audioInit();if(!audioCtx||musicTimer)return;const tick=()=>{if(!audioCtx||audioMuted)return;const f=musicNotes[musicStep%musicNotes.length];if(f){tone(f,.14,'triangle',.035,.98);if(musicStep%4===0)tone(f/2,.22,'sine',.045,.98)}musicStep++};tick();musicTimer=setInterval(tick,180)}
+function toggleMute(){audioMuted=!audioMuted;audioInit();if(audioMaster)audioMaster.gain.setTargetAtTime(audioMuted?0:.62,audioCtx.currentTime,.025);if(!audioMuted)startMusic()}
+
+
 /* ================= 2. CRÉATION D’UN NIVEAU ================= */
 function build(){
   const rows=Math.min(9,5+Math.ceil(level/2));         // 6 rangées au niveau 1, jusqu’à 9
@@ -116,23 +129,23 @@ function build(){
 }
 function toReady(){st='ready';balls=[{x:P.x,y:P.y-P.h/2-R-1,vx:0,vy:0}]}   // balle collée à la raquette
 function reset(){score=0;lives=3;level=1;wideT=mgT=lz=0;P.w=70;gifts=[];bul=[];pt=[];beams=[];build();toReady()}
-function launch(){const a=rnd(-.3,.3);balls[0].vx=spd()*Math.sin(a);balls[0].vy=-spd()*Math.cos(a);st='play'}
+function launch(){audioInit();startMusic();sfx('launch');const a=rnd(-.3,.3);balls[0].vx=spd()*Math.sin(a);balls[0].vy=-spd()*Math.cos(a);st='play'}
 function boom(x,y,c,n){for(let i=0;i<n;i++){const a=rnd(0,6.28),v=rnd(40,200);pt.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,l:rnd(.3,.7),c})}}
 
 /* ================= 3. BRIQUES : DÉGÂTS, DESTRUCTION, BOMBE ================= */
-function hurt(b,d){b.hp-=d;score+=5;if(b.hp<=0)destroy(b)}
+function hurt(b,d){sfx('brick',b.k==='r'?'resistant':b.k==='s'?'surprise':b.k==='b'?'bomb':'normal');b.hp-=1;score+=5;if(b.hp<=0)destroy(b)}
 function destroy(b){
-  if(b.dead)return;b.dead=1;score+=10*b.mhp;           // une brique à 10 coups rapporte 100 points
+  if(b.dead)return;b.dead=1;sfx('break');score+=10*b.mhp;           // une brique à 10 coups rapporte 100 points
   boom(b.x+BW/2,b.y+BH/2,b.k==='r'?'#9fb0ff':PAL[b.r%9],8);
   if(b.k==='s')gifts.push({x:b.x+BW/2,y:b.y,k:BAG[ri(0,BAG.length-1)]});   // surprise : bonus aléatoire
   if(b.k==='b')explodeAll();                           // bombe : tout le mur saute
 }
-function explodeAll(){fl=.5;vib([60,40,120]);   // vibration de la bombe
+function explodeAll(){sfx('bomb');fl=.5;vib([60,40,120]);   // vibration de la bombe
   bricks.forEach(b=>{if(!b.dead){b.dead=1;score+=10;boom(b.x+BW/2,b.y+BH/2,'#ffb02e',4)}})}
 
 /* ================= 4. BONUS, LASER, TIR ================= */
 function take(k){                                      // effet d’un bonus attrapé
-  toast=GD[k][1];toastT=1.4;vib(20);   // petite vibration à chaque bonus
+  toast=GD[k][1];toastT=1.4;sfx(k==='M'?'multi':(k==='G'||k==='Z')?'weapon':'bonus');vib(20);   // petite vibration à chaque bonus
   if(k==='M'){const add=[];
     balls.forEach(b=>{if(balls.length+add.length<9)[-.4,.4].forEach(a=>{const c=Math.cos(a),s=Math.sin(a);add.push({x:b.x,y:b.y,vx:b.vx*c-b.vy*s,vy:b.vx*s+b.vy*c})})});
     balls=balls.concat(add)}
@@ -143,7 +156,7 @@ function take(k){                                      // effet d’un bonus att
   else lz=Math.min(6,lz+2);
 }
 function laser(){                                      // rayon vertical : pulvérise toute la rangée de la 1re brique touchée
-  lz--;let t=null;
+  lz--;sfx('laser');let t=null;
   bricks.forEach(b=>{if(!b.dead&&P.x>=b.x-2&&P.x<=b.x+BW+2&&(!t||b.y>t.y))t=b});
   beams.push({x:P.x,y0:t?t.y+BH:TOP,y1:P.y-P.h/2,rowY:t?t.y:-99,t:.3});
   if(t){const row=t.r;bricks.filter(b=>b.r===row).forEach(b=>destroy(b))}
@@ -161,7 +174,7 @@ function step(b,sp){                                   // un petit pas de la bal
   if(b.y<TOP+R){b.y=TOP+R;b.vy=Math.abs(b.vy)}
   const py=P.y-P.h/2;
   if(b.vy>0&&b.y+R>=py&&b.y-R<=P.y+P.h/2&&Math.abs(b.x-P.x)<=P.w/2+R){   // rebond sur la raquette : l’angle dépend de l’impact
-    const a=clamp((b.x-P.x)/(P.w/2),-1,1)*1.05;b.vx=sp*Math.sin(a);b.vy=-sp*Math.cos(a);b.y=py-R;
+    sfx('paddle');const a=clamp((b.x-P.x)/(P.w/2),-1,1)*1.05;b.vx=sp*Math.sin(a);b.vy=-sp*Math.cos(a);b.y=py-R;
   }
   for(const k of bricks){                              // collision cercle / rectangle
     if(k.dead||b.x+R<k.x||b.x-R>k.x+BW||b.y+R<k.y||b.y-R>k.y+BH)continue;
@@ -186,7 +199,7 @@ function upd(dt){
 
   if(st==='play'){
     if(wideT>0)wideT-=dt;
-    if(mgT>0){mgT-=dt;mgCd-=dt;if(mgCd<=0){mgCd=.13;bul.push({x:P.x-P.w/2+6,y:P.y-8},{x:P.x+P.w/2-6,y:P.y-8})}}   // mitraillette
+    if(mgT>0){mgT-=dt;mgCd-=dt;if(mgCd<=0){mgCd=.13;if(performance.now()-lastGunSound>110){sfx('machine');lastGunSound=performance.now()}bul.push({x:P.x-P.w/2+6,y:P.y-8},{x:P.x+P.w/2-6,y:P.y-8})}}   // mitraillette
     bul.forEach(u=>{u.y-=720*dt;for(const b of bricks)if(!b.dead&&u.x>b.x&&u.x<b.x+BW&&u.y>b.y&&u.y<b.y+BH){hurt(b,1);u.y=-99;break}});
     bul=bul.filter(u=>u.y>TOP);
     gifts.forEach(o=>{o.y+=130*dt;if(o.y+9>P.y-P.h/2&&o.y-9<P.y+P.h/2&&Math.abs(o.x-P.x)<P.w/2+14){o.d=1;take(o.k)}});
@@ -197,7 +210,7 @@ function upd(dt){
     if(!balls.length)lose();
   }
   bricks=bricks.filter(b=>!b.dead);
-  if(st==='play'&&!bricks.length){st='levelup';msgT=2.2;score+=500;balls=[];gifts=[];bul=[]}   // mur détruit : niveau suivant
+  if(st==='play'&&!bricks.length){sfx('wall');st='levelup';msgT=2.2;score+=500;balls=[];gifts=[];bul=[]}   // mur détruit : niveau suivant
 }
 
 /* ================= 6. RENDU ================= */
@@ -234,7 +247,7 @@ function draw(){
   /* interface */
   if(st!=='title'){
     g.textBaseline='top';g.font='12px "Press Start 2P",ui-monospace,monospace';g.fillStyle='#dfe6ff';
-    g.textAlign='left';g.fillText('Score '+score,14,14);g.textAlign='right';g.fillText('Niveau '+level,W-14,14);
+    g.textAlign='left';g.fillText('Score '+score,14,14);g.textAlign='right';g.fillText('Niveau '+level,W-14,14);g.textAlign='center';g.fillStyle=audioMuted?'#ff6b57':'#3ddbd9';g.fillText(audioMuted?'SON OFF [M]':'SON ON [M]',W/2,14);
     g.font='10px "Press Start 2P",ui-monospace,monospace';g.textAlign='left';g.fillText('Vies '+lives,14,H-24);
     g.textAlign='right';let y=H-24;
     if(wideT>0){g.fillText('XL '+Math.ceil(wideT)+'s',W-14,y);y-=16}
@@ -254,7 +267,7 @@ function draw(){
   /* menus dessinés dans le canvas ; btn() enregistre chaque bouton pour la détection du toucher */
   btns=[];
   if(st==='title'){
-    say('Casse-briques',140,26,'#ffb02e');say('Meilleur score '+best,180,12,'#9fb0ff');btn(196,'Jouer',play);btn(252,'Mode : '+(mode==='rel'?'Relatif':'Direct'),toggleMode);
+    say('Casse-briques',140,26,'#ffb02e');say(audioMuted?'Son coupé — M pour activer':'Musique et sons — M pour couper',166,9,'#3ddbd9');say('Meilleur score '+best,180,12,'#9fb0ff');btn(196,'Jouer',play);btn(252,'Mode : '+(mode==='rel'?'Relatif':'Direct'),toggleMode);
     Object.keys(GD).forEach((k,i)=>{const y=346+i*26;g.fillStyle=GD[k][0];g.fillRect(80,y-14,28,18);g.fillStyle='#0b1020';g.font='bold 13px ui-monospace,monospace';g.textAlign='center';g.textBaseline='middle';g.fillText(k,94,y-4);g.textBaseline='alphabetic';say(GD[k][1],y,11,'#e8eeff','left')});
     say('Chiffre = coups restants avant destruction',504,9,'#9fb0ff');say('Bombe = tout le mur saute',526,9,'#9fb0ff');
     say('Glissez : bouger  /  Touchez : lancer ou laser',580,9,'#9fb0ff');say('2e doigt : touchez pour lancer ou tirer',600,9,'#9fb0ff');
@@ -292,7 +305,7 @@ const pos=e=>{const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r
 let dragId=null,lastX=0,moved=0,t0=0;
 function setX(x){P.x=clamp(x,P.w/2,W-P.w/2)}            // place la raquette en la gardant dans le terrain
 cv.addEventListener('pointerdown',e=>{
-  e.preventDefault();const p=pos(e);
+  e.preventDefault();audioInit();const p=pos(e);
   if(!(st==='over'&&performance.now()-overAt<800)){      // garde de 0,8 s après la défaite : évite un « Rejouer » accidentel
     const b=btns.find(b=>p.x>=b.x&&p.x<=b.x+b.w&&p.y>=b.y&&p.y<=b.y+b.h);   // un bouton de menu est-il touché ?
     if(b){b.fn();return}
@@ -318,7 +331,7 @@ cv.addEventListener('contextmenu',e=>e.preventDefault());
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();else if(playing())lock()});   // le verrou d’écran est libéré en arrière-plan : on le reprend
 addEventListener('blur',()=>{K={};pause()});
 try{history.pushState({g:1},'');addEventListener('popstate',()=>{pause();history.pushState({g:1},'')})}catch(e){}   // Retour Android = pause
-addEventListener('keydown',e=>{const k=e.key.toLowerCase();if([' ','arrowleft','arrowright'].includes(k))e.preventDefault();K[k]=1;
+addEventListener('keydown',e=>{const k=e.key.toLowerCase();if([' ','arrowleft','arrowright'].includes(k))e.preventDefault();if(k==='m'&&!e.repeat)toggleMute();K[k]=1;
   if(k===' ')fire();if(k==='p'||k==='escape'){if(paused)paused=false;else pause()}});
 addEventListener('keyup',e=>{K[e.key.toLowerCase()]=0});
 
